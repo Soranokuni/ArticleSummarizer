@@ -1,7 +1,7 @@
 import feedparser
 import requests
 from bs4 import BeautifulSoup
-import google.generativeai as genai
+from google import genai # Modern 2026 SDK
 import json
 import os
 import time
@@ -12,16 +12,13 @@ ALLOWED_SECTIONS = ["/kriti/", "/ellada/"]
 DB_FILE = "processed_articles.json"
 SUMMARY_DIR = "summaries"
 
-# Initialize Gemini 3 Fast (using the 2026 Flash model)
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-3.0-flash') # Gemini 3 Fast equivalent
+# Initialize Gemini 3 Fast
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 def get_full_text(url):
-    """Scrapes the main article text from NeaKriti."""
     try:
         r = requests.get(url, timeout=10)
         soup = BeautifulSoup(r.content, 'html.parser')
-        # NeaKriti typical article body selector
         paragraphs = soup.select('.article-body p, .article-text p')
         return " ".join([p.text for p in paragraphs])
     except Exception as e:
@@ -29,46 +26,43 @@ def get_full_text(url):
         return None
 
 def summarize(text):
-    """Sends text to Gemini for a 3-bullet Greek summary."""
-    prompt = f"Περίληψε το παρακάτω άρθρο σε 3 σύντομες και περιεκτικές κουκκίδες (bullets) στα Ελληνικά:\n\n{text}"
-    response = model.generate_content(prompt)
+    prompt = f"Περίληψε το παρακάτω άρθρο σε 3 σύντομες κουκκίδες στα Ελληνικά:\n\n{text}"
+    # Using the Gemini 2.0 Flash (Gemini 3 Fast equivalent)
+    response = client.models.generate_content(
+        model="gemini-3.0-flash", contents=prompt
+    )
     return response.text
 
 def main():
     if not os.path.exists(SUMMARY_DIR): os.makedirs(SUMMARY_DIR)
     
-    # Load history
     if os.path.exists(DB_FILE):
         with open(DB_FILE, 'r') as f: processed = json.load(f)
     else:
         processed = []
 
     feed = feedparser.parse(RSS_URL)
-    new_entries = []
-
+    
     for entry in feed.entries:
         link = entry.link
-        # Filter 1: Section check
         if any(section in link for section in ALLOWED_SECTIONS):
-            # Filter 2: Check if already processed
-            article_id = link.split('/')[-1].split('_')[0] # Extracts "2159092"
+            article_id = link.split('/')[-1].split('_')[0]
             
             if article_id not in processed:
-                print(f"Processing: {link}")
+                print(f"Processing: {article_id}")
                 full_text = get_full_text(link)
                 
                 if full_text and len(full_text) > 200:
                     summary_text = summarize(full_text)
                     
-                    # Save individual JSON for the frontend to fetch
-                    with open(f"{SUMMARY_DIR}/{article_id}.json", "w", encoding="utf-8") as f:
-                        json.dump({"summary": summary_text, "url": link}, f, ensure_content_type=False)
+                    file_path = f"{SUMMARY_DIR}/{article_id}.json"
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        json.dump({"summary": summary_text, "url": link}, f, ensure_ascii=False)
                     
+                    print(f"✅ Saved summary for {article_id}")
                     processed.append(article_id)
-                    new_entries.append(article_id)
-                    time.sleep(1) # Rate limiting safety
+                    time.sleep(1)
 
-    # Update history (keep last 500 articles to prevent file bloat)
     with open(DB_FILE, 'w') as f:
         json.dump(processed[-500:], f)
 
