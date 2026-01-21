@@ -37,16 +37,15 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # Ensure folders exist
-          mkdir -p summaries
+          # 1. Force add the directory and the tracking file
+          # Using '.' adds everything new, including the summaries folder
+          git add summaries/ processed_articles.json
           
-          # Stage changes
-          git add summaries/*.json processed_articles.json || true
-          
-          # Check for changes and commit
-          if [ -n "$(git status --porcelain)" ]; then
+          # 2. Use a more robust check for changes
+          if git diff --cached --quiet; then
+            echo "No changes to commit. Everything is up to date."
+          else
+            echo "Changes detected. Committing..."
             git commit -m "Update AI summaries (Gemini 3 Flash)"
             git push
-          else
-            echo "No changes to commit"
           fi
